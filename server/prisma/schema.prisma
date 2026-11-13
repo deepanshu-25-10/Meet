@@ -1,0 +1,146 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String       @id @default(uuid())
+  email        String       @unique
+  passwordHash String
+  name         String
+  avatarUrl    String?
+  status       String       @default("online") // online, busy, away, offline
+  bio          String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  ownedRooms   Room[]       @relation("RoomOwner")
+  memberships  RoomMember[]
+  messages     Message[]
+  reactions    Reaction[]
+  activities   ActivityLog[]
+}
+
+model Room {
+  id              String        @id @default(uuid())
+  slug            String        @unique // e.g. "deep-nav" - permanent URL slug
+  name            String
+  description     String?
+  isPrivate       Boolean       @default(false)
+  passcode        String?
+  maxParticipants Int           @default(10)
+  ownerId         String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  owner           User          @relation("RoomOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members         RoomMember[]
+  invites         RoomInvite[]
+  messages        Message[]
+  activities      ActivityLog[]
+
+  @@index([slug])
+}
+
+model RoomMember {
+  id        String   @id @default(uuid())
+  roomId    String
+  userId    String
+  role      String   @default("MEMBER") // OWNER, ADMIN, MEMBER, GUEST
+  isBanned  Boolean  @default(false)
+  joinedAt  DateTime @default(now())
+
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([roomId])
+  @@index([userId])
+}
+
+model RoomInvite {
+  id        String    @id @default(uuid())
+  roomId    String
+  code      String    @unique
+  createdBy String
+  maxUses   Int?
+  usesCount Int       @default(0)
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+
+  room      Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([code])
+  @@index([roomId])
+}
+
+model Message {
+  id          String       @id @default(uuid())
+  roomId      String
+  senderId    String
+  content     String
+  replyToId   String?
+  isEdited    Boolean      @default(false)
+  isDeleted   Boolean      @default(false)
+  isPinned    Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  room        Room         @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  sender      User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  replyTo     Message?     @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies     Message[]    @relation("MessageReplies")
+  attachments Attachment[]
+  reactions   Reaction[]
+
+  @@index([roomId])
+  @@index([senderId])
+  @@index([createdAt])
+}
+
+model Attachment {
+  id        String   @id @default(uuid())
+  messageId String
+  fileName  String
+  fileSize  Int
+  mimeType  String
+  url       String
+  createdAt DateTime @default(now())
+
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+}
+
+model Reaction {
+  id        String   @id @default(uuid())
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+}
+
+model ActivityLog {
+  id        String   @id @default(uuid())
+  roomId    String
+  userId    String?
+  type      String   // e.g. ROOM_CREATED, USER_JOINED, USER_LEFT, SCREEN_SHARE_STARTED, REMOTE_CONTROL_GRANTED
+  details   String?
+  createdAt DateTime @default(now())
+
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([roomId])
+  @@index([createdAt])
+}

@@ -1,0 +1,77 @@
+# ==========================================
+# Dependencies
+# ==========================================
+node_modules/
+.pnp
+.pnp.js
+
+# ==========================================
+# Critical Security: Secrets & Environment
+# ==========================================
+.env
+.env.local
+.env.*.local
+*.env
+server/.env
+client/.env
+
+# ==========================================
+# Critical Security: Local Databases
+# ==========================================
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+dev.db
+dev.db-journal
+server/prisma/*.db
+server/prisma/*.db-journal
+
+# ==========================================
+# Privacy & Security: Uploaded Files & Media
+# ==========================================
+uploads/*
+!uploads/.gitkeep
+server/uploads/*
+!server/uploads/.gitkeep
+
+# ==========================================
+# Binaries & Executables
+# ==========================================
+*.exe
+cloudflared.exe
+*.dll
+*.node
+*.dylib
+*.so
+
+# ==========================================
+# Build & Distribution Artifacts
+# ==========================================
+dist/
+dist-ssr/
+build/
+*.tsbuildinfo
+server/dist/
+client/dist/
+
+# ==========================================
+# Logs & Diagnostic Outputs
+# ==========================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ==========================================
+# Scratch & Local Agent Workspace Folders
+# ==========================================
+test-*.js
+scratch/
+.system_generated/
+.user_uploaded/
+brain/
+.DS_Store
+Thumbs.db
