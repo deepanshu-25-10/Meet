@@ -4,7 +4,7 @@
   "description": "Study Partner NestJS backend API and WebSocket real-time communication server",
   "main": "dist/main.js",
   "scripts": {
-    "build": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true }); require('fs').rmSync('tsconfig.tsbuildinfo', { force: true })\" && prisma generate && tsc",
+    "build": "prisma generate && prisma db push && tsc",
     "start": "node dist/main.js",
     "dev": "prisma generate && ts-node -r tsconfig-paths/register src/main.ts",
     "prisma:generate": "prisma generate",
