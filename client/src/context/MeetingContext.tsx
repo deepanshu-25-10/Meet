@@ -174,15 +174,23 @@ const getIceServers = (): RTCIceServer[] => {
   const customTurnCred = import.meta.env.VITE_TURN_CREDENTIAL;
 
   if (customTurnUrl && customTurnUser && customTurnCred) {
+    const urls = customTurnUrl.includes(',')
+      ? customTurnUrl.split(',').map((u) => u.trim())
+      : [
+          customTurnUrl,
+          customTurnUrl.includes('?') ? customTurnUrl : `${customTurnUrl}?transport=tcp`,
+        ];
+
+    console.log('[WebRTC] Initializing with custom dedicated TURN relay:', urls);
     return [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       {
-        urls: customTurnUrl,
+        urls,
         username: customTurnUser,
         credential: customTurnCred,
       },
-      ...DEFAULT_ICE_SERVERS.filter((s) => !String(s.urls).startsWith('turn:')),
+      ...DEFAULT_ICE_SERVERS,
     ];
   }
 
