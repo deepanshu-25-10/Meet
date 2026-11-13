@@ -143,6 +143,9 @@ interface MeetingContextType {
 const MeetingContext = createContext<MeetingContextType | undefined>(undefined);
 
 const ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
   { urls: 'stun:stun.cloudflare.com:3478' },
   { urls: 'stun:stun.openrelay.metered.ca:80' },
 ];
@@ -681,11 +684,16 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     if (!nextOff && (!videoTrack || videoTrack.readyState === 'ended')) {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: selectedVideoInput
-            ? { deviceId: { exact: selectedVideoInput }, width: { ideal: 1280 }, height: { ideal: 720 } }
-            : { width: { ideal: 1280 }, height: { ideal: 720 } },
-        });
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: selectedVideoInput
+              ? { deviceId: { exact: selectedVideoInput }, width: { ideal: 1280 }, height: { ideal: 720 } }
+              : { width: { ideal: 1280 }, height: { ideal: 720 } },
+          });
+        } catch {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        }
         const newTrack = stream.getVideoTracks()[0];
         if (newTrack) {
           if (videoTrack) localStreamRef.current.removeTrack(videoTrack);

@@ -51,6 +51,7 @@ export const MeetingLobbyPage: React.FC<MeetingLobbyPageProps> = ({
   const [selectedAudioDevice, setSelectedAudioDevice] = useState<string>('');
   const [selectedVideoDevice, setSelectedVideoDevice] = useState<string>('');
   const [audioLevel, setAudioLevel] = useState<number>(0);
+  const [mediaError, setMediaError] = useState<string | null>(null);
 
   // Lobby & Room Info states
   const [roomInfo, setRoomInfo] = useState<{
@@ -134,36 +135,89 @@ export const MeetingLobbyPage: React.FC<MeetingLobbyPageProps> = ({
     let isCancelled = false;
 
     const startMedia = async () => {
+      setMediaError(null);
+      let audioStream: MediaStream | null = null;
+      let videoStream: MediaStream | null = null;
+
+      // 1. Acquire Camera independently
       try {
-        const constraints: MediaStreamConstraints = {
-          audio: selectedAudioDevice
-            ? { deviceId: { exact: selectedAudioDevice } }
-            : true,
+        videoStream = await navigator.mediaDevices.getUserMedia({
           video: selectedVideoDevice
             ? { deviceId: { exact: selectedVideoDevice }, width: { ideal: 1280 }, height: { ideal: 720 } }
             : { width: { ideal: 1280 }, height: { ideal: 720 } },
-        };
-
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-        if (isCancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
+        });
+      } catch (videoErr: any) {
+        console.warn('Camera with constraints failed, trying basic video:', videoErr);
+        try {
+          videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        } catch (basicErr: any) {
+          console.warn('Camera acquisition failed:', basicErr);
+          if (basicErr.name === 'NotAllowedError' || basicErr.name === 'PermissionDeniedError') {
+            setMediaError('Camera permission was blocked. Please click the lock/camera icon in your browser URL bar and allow Camera.');
+          } else if (basicErr.name === 'NotReadableError' || basicErr.name === 'TrackStartError') {
+            setMediaError('Camera is in use by another app or browser tab (e.g. Zoom, Teams, or another window). Please close them and refresh.');
+          } else {
+            setMediaError(`Camera unavailable: ${basicErr.message || basicErr.name}`);
+          }
         }
+      }
 
-        setLocalStream(stream);
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
+      // 2. Acquire Microphone independently
+      try {
+        audioStream = await navigator.mediaDevices.getUserMedia({
+          audio: selectedAudioDevice
+            ? { deviceId: { exact: selectedAudioDevice } }
+            : true,
+        });
+      } catch (audioErr: any) {
+        console.warn('Microphone with constraints failed, trying basic audio:', audioErr);
+        try {
+          audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } catch (basicErr: any) {
+          console.warn('Microphone completely unavailable:', basicErr);
         }
+      }
 
-        // Enumerate devices for selector
+      if (isCancelled) {
+        videoStream?.getTracks().forEach((t) => t.stop());
+        audioStream?.getTracks().forEach((t) => t.stop());
+        return;
+      }
+
+      const combinedTracks: MediaStreamTrack[] = [];
+      if (videoStream) {
+        combinedTracks.push(...videoStream.getVideoTracks());
+        setIsCameraOff(false);
+      } else {
+        setIsCameraOff(true);
+      }
+
+      if (audioStream) {
+        combinedTracks.push(...audioStream.getAudioTracks());
+        setIsMuted(false);
+      } else {
+        setIsMuted(true);
+      }
+
+      if (combinedTracks.length > 0) {
+        const combined = new MediaStream(combinedTracks);
+        stream = combined;
+        setLocalStream(combined);
+      }
+
+      // Enumerate devices for selector
+      try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const audios = devices.filter((d) => d.kind === 'audioinput');
         const videos = devices.filter((d) => d.kind === 'videoinput');
         setAudioDevices(audios);
         setVideoDevices(videos);
+      } catch (e) {
+        console.warn('Failed to enumerate devices:', e);
+      }
 
-        // Setup Audio Analyser for volume wave meter
+      // Setup Audio Analyser for volume wave meter
+      if (audioStream) {
         try {
           const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
           if (AudioContextClass) {
@@ -173,7 +227,7 @@ export const MeetingLobbyPage: React.FC<MeetingLobbyPageProps> = ({
             analyser.fftSize = 64;
             analyserRef.current = analyser;
 
-            const source = audioCtx.createMediaStreamSource(stream);
+            const source = audioCtx.createMediaStreamSource(audioStream);
             source.connect(analyser);
 
             const dataArray = new Uint8Array(analyser.frequencyBinCount);
@@ -194,8 +248,6 @@ export const MeetingLobbyPage: React.FC<MeetingLobbyPageProps> = ({
         } catch (e) {
           console.warn('Audio analyser error:', e);
         }
-      } catch (err) {
-        console.warn('Failed to access media devices:', err);
       }
     };
 
@@ -214,6 +266,16 @@ export const MeetingLobbyPage: React.FC<MeetingLobbyPageProps> = ({
       }
     };
   }, [selectedAudioDevice, selectedVideoDevice]);
+
+  // Ensure video element plays local stream whenever stream or camera state updates
+  useEffect(() => {
+    if (videoRef.current && localStream) {
+      if (videoRef.current.srcObject !== localStream) {
+        videoRef.current.srcObject = localStream;
+      }
+      videoRef.current.play().catch(() => {});
+    }
+  }, [localStream, isCameraOff]);
 
   // Toggle Microphone
   const toggleMute = () => {
@@ -452,6 +514,14 @@ export const MeetingLobbyPage: React.FC<MeetingLobbyPageProps> = ({
                 />
                 <span className="text-base font-semibold text-slate-300">{user?.name}</span>
                 <span className="text-xs text-slate-500 mt-1">Camera is turned off</span>
+              </div>
+            )}
+
+            {/* Media Permission / Hardware Error Notice */}
+            {mediaError && (
+              <div className="absolute top-4 inset-x-4 z-20 flex items-start space-x-2.5 p-3 rounded-2xl bg-amber-950/80 border border-amber-500/40 text-amber-200 text-xs backdrop-blur-md shadow-lg">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0 text-amber-400 mt-0.5" />
+                <span className="flex-1 leading-relaxed font-medium">{mediaError}</span>
               </div>
             )}
 
