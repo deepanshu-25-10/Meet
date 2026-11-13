@@ -142,13 +142,52 @@ interface MeetingContextType {
 
 const MeetingContext = createContext<MeetingContextType | undefined>(undefined);
 
-const ICE_SERVERS = [
+const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
+  // Fast Google STUN servers (for direct P2P when NAT allows)
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
   { urls: 'stun:stun2.l.google.com:19302' },
   { urls: 'stun:stun.cloudflare.com:3478' },
-  { urls: 'stun:stun.openrelay.metered.ca:80' },
+  { urls: 'stun:openrelay.metered.ca:80' },
+
+  // Open Relay Project TURN Servers (Relays audio, video & screen share across Symmetric NAT / strict Wi-Fi firewalls)
+  {
+    urls: 'turn:openrelay.metered.ca:80',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  {
+    urls: 'turn:openrelay.metered.ca:443',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  {
+    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
 ];
+
+const getIceServers = (): RTCIceServer[] => {
+  const customTurnUrl = import.meta.env.VITE_TURN_URL;
+  const customTurnUser = import.meta.env.VITE_TURN_USERNAME;
+  const customTurnCred = import.meta.env.VITE_TURN_CREDENTIAL;
+
+  if (customTurnUrl && customTurnUser && customTurnCred) {
+    return [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      {
+        urls: customTurnUrl,
+        username: customTurnUser,
+        credential: customTurnCred,
+      },
+      ...DEFAULT_ICE_SERVERS.filter((s) => !String(s.urls).startsWith('turn:')),
+    ];
+  }
+
+  return DEFAULT_ICE_SERVERS;
+};
 
 export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
@@ -348,8 +387,10 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const pc = new RTCPeerConnection({
-      iceServers: ICE_SERVERS,
+      iceServers: getIceServers(),
       iceCandidatePoolSize: 10,
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require',
     });
     peerConnections.current.set(targetSocketId, pc);
 
@@ -462,6 +503,33 @@ export const MeetingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setParticipants((prev) =>
         prev.map((p) => (p.socketId === targetSocketId ? { ...p, connectionQuality: quality } : p)),
       );
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      const state = pc.iceConnectionState;
+      console.log(`[WebRTC] ICE Connection State (${targetSocketId}):`, state);
+
+      if (state === 'failed') {
+        console.warn(`[WebRTC] Direct P2P ICE failed for ${targetSocketId}. Retrying with TURN relay / ICE restart...`);
+        try {
+          if (typeof (pc as any).restartIce === 'function') {
+            (pc as any).restartIce();
+          }
+          pc.createOffer({ iceRestart: true })
+            .then(async (offer) => {
+              await pc.setLocalDescription(offer);
+              const socket = getSocket();
+              if (socket.connected) {
+                socket.emit('webrtc:offer', { targetSocketId, offer });
+              }
+            })
+            .catch((err) => {
+              console.warn('[WebRTC] ICE restart offer error:', err);
+            });
+        } catch (err) {
+          console.warn('[WebRTC] ICE restart error:', err);
+        }
+      }
     };
 
     return pc;
